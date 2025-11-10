@@ -11,8 +11,18 @@ type Platform = {
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [score, setScore] = useState(0);
-  const [running, setRunning] = useState(true);
+  const scoreRef = useRef(0);
+  // start paused; user must click/tap to begin (works on desktop & mobile)
+  const [running, setRunning] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [highScore, setHighScore] = useState<number>(() => {
+    try {
+      return Number(localStorage.getItem('highScore') || 0);
+    } catch {
+      return 0;
+    }
+  });
+  const [isNewHigh, setIsNewHigh] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -51,7 +61,7 @@ export const App: React.FC = () => {
   // when the player rises quickly. This is still a modest number to keep
   // CPU work low; we also allow spawning multiple platforms per frame below.
   // larger pool so we can hold more platforms without constantly reallocating
-  const platformCount = 30;
+  const platformCount = 35;
 
     const makePlatform = (y: number, vy = 1.5) => {
       const w = 80 + Math.random() * 120;
@@ -108,8 +118,8 @@ export const App: React.FC = () => {
       lastTime = t;
 
       // input
-      if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.vx -= 0.6;
-      if (keys['ArrowRight'] || keys['d'] || keys['D']) player.vx += 0.6;
+      if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.vx -= 0.5;
+      if (keys['ArrowRight'] || keys['d'] || keys['D']) player.vx += 0.5;
 
       player.vx *= friction;
       player.x += player.vx * (dt / 16);
@@ -146,9 +156,13 @@ export const App: React.FC = () => {
       if (player.y < scrollThreshold) {
         const shift = scrollThreshold - player.y;
         player.y = scrollThreshold;
-        for (const p of platforms) p.y += shift;
-        worldScroll += shift;
-        setScore((s) => Math.max(s, Math.floor(worldScroll)));
+  for (const p of platforms) p.y += shift;
+  worldScroll += shift;
+  // update score and keep a ref with the latest value so we can access
+  // it from inside this effect when the game ends
+  const newScore = Math.max(scoreRef.current, Math.floor(worldScroll));
+  scoreRef.current = newScore;
+  setScore(newScore);
       }
 
       // remove platforms below screen
@@ -204,24 +218,36 @@ export const App: React.FC = () => {
       if (player.y - player.r > window.innerHeight) {
         setGameOver(true);
         setRunning(false);
+        // finalize score and persist high score
+        try {
+          const finalScore = scoreRef.current;
+          const prev = Number(localStorage.getItem('highScore') || 0);
+          if (finalScore > prev) {
+            localStorage.setItem('highScore', String(finalScore));
+            setHighScore(finalScore);
+            setIsNewHigh(true);
+          }
+        } catch {
+          // ignore localStorage errors
+        }
       }
 
       // draw
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // background
-      ctx.fillStyle = '#e6f2ff';
+      ctx.fillStyle = '#616f7eff';
       ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
       // platforms
-      ctx.fillStyle = '#2b6cb0';
+      ctx.fillStyle = '#8e9ba8ff';
       for (const p of platforms) {
         ctx.fillRect(p.x, p.y, p.w, p.h);
       }
 
       // player
       ctx.beginPath();
-      ctx.fillStyle = '#ff6b6b';
+      ctx.fillStyle = '#3688daff';
       ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
       ctx.fill();
       ctx.closePath();
@@ -234,7 +260,9 @@ export const App: React.FC = () => {
       if (running) rafId = requestAnimationFrame(step);
     };
 
-    rafId = requestAnimationFrame(step);
+  // only start the RAF loop when `running` is true so the game waits for
+  // a user-initiated click/tap to begin on both PC and phone.
+  if (running) rafId = requestAnimationFrame(step);
 
     return () => {
       cancelAnimationFrame(rafId);
@@ -252,22 +280,51 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-start bg-[#e6f2ff]">
       <div className="w-full flex items-center justify-between px-4 py-2 bg-white/60 backdrop-blur-sm">
-        <div className="text-lg font-semibold">Platform Jumper</div>
-        <div className="text-sm">Score: {score}</div>
+        <div className="text-lg font-semibold">Slicky Blob</div>
+        <div className="text-sm">Score: {score} — Best: {highScore}</div>
       </div>
 
       <canvas ref={canvasRef} style={{ display: 'block', touchAction: 'none' }} />
 
-      <div className="fixed left-4 bottom-4 text-sm bg-white/80 p-2 rounded shadow">
+      {/* Click / tap overlay to start the game on desktop and mobile */}
+      {!running && !gameOver && (
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-black/30"
+          onClick={() => {
+            scoreRef.current = 0;
+            setScore(0);
+            setGameOver(false);
+            setIsNewHigh(false);
+            setRunning(true);
+          }}
+          onTouchStart={() => {
+            scoreRef.current = 0;
+            setScore(0);
+            setGameOver(false);
+            setIsNewHigh(false);
+            setRunning(true);
+          }}
+        >
+          <div className="bg-white/90 p-6 rounded shadow-lg text-center w-80 cursor-pointer">
+            <h2 className="text-2xl font-bold mb-2">Slicky Blob</h2>
+            <p className="mb-4">High Score: {highScore}</p>
+            <p className="mb-4">Click or tap to start</p>
+            <div className="text-sm text-muted-foreground">Controls: Arrow keys or A/D, or move mouse/touch to steer.</div>
+          </div>
+        </div>
+      )}
+
+      {/* <div className="fixed left-4 bottom-4 text-sm bg-white/80 p-2 rounded shadow">
         <div>Controls: Arrow keys or A/D to move, move mouse/touch to steer.</div>
         <div className="mt-1">Goal: keep jumping — score increases as you climb.</div>
-      </div>
+      </div> */}
 
       {gameOver && (
         <div className="fixed inset-0 flex items-center justify-center">
           <div className="bg-white p-6 rounded shadow-lg text-center w-80">
             <h2 className="text-2xl font-bold mb-2">Game Over</h2>
-            <p className="mb-4">Score: {score}</p>
+              <p className="mb-2">Score: {score}</p>
+              <p className="mb-4">Best: {highScore}{isNewHigh ? ' — New High!' : ''}</p>
             <div className="flex gap-3 justify-center">
               <button
                 className="px-4 py-2 bg-blue-600 text-white rounded"
